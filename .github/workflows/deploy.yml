@@ -85,7 +85,7 @@ jobs:
           # Create PAT at: https://github.com/settings/tokens/new
           # Scopes needed: repo (full)
           # Add as secret: GH_PAT
-          token: ${{ secrets.GH_PAT }}
+          token: ${{ secrets.GH_TOKEN }}
 
       - name: Update image tag in dev gitops manifest
         run: |
