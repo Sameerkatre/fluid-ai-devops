@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
+  namespace: fluid-demo
   labels:
     app: backend
     tier: api
@@ -10,9 +11,6 @@ spec:
   selector:
     matchLabels:
       app: backend
-  # ── Zero-downtime Rolling Update ────────────────────────
-  # maxUnavailable: 0  → never kill old pod before new is ready
-  # maxSurge: 1        → spin up 1 extra pod during the update
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -26,9 +24,8 @@ spec:
     spec:
       containers:
         - name: backend
-          # This image tag is updated by Bitbucket Pipelines on every main push.
-          # ArgoCD watches this file and applies the change to the cluster.
-          image: YOUR_DOCKERHUB_USERNAME/fluid-demo:latest
+          # sameerkatre = your Docker Hub username
+          image: sameerkatre/fluid-demo:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 5000
@@ -43,7 +40,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-          # ── Resource Limits ─────────────────────────────
           resources:
             requests:
               cpu: "100m"
@@ -51,10 +47,6 @@ spec:
             limits:
               cpu: "300m"
               memory: "256Mi"
-          # ── Liveness Probe ──────────────────────────────
-          # Checks: is the process still alive?
-          # /health just returns 200 — no external deps.
-          # If this fails 3x, K8s RESTARTS the container.
           livenessProbe:
             httpGet:
               path: /health
@@ -63,11 +55,6 @@ spec:
             periodSeconds: 20
             failureThreshold: 3
             timeoutSeconds: 5
-          # ── Readiness Probe ─────────────────────────────
-          # Checks: is Redis reachable? Can we serve traffic?
-          # /ready pings Redis. If this fails 3x, K8s REMOVES
-          # the pod from the Service endpoints — no restarts.
-          # Traffic stops flowing to bad pods gracefully.
           readinessProbe:
             httpGet:
               path: /ready
@@ -81,6 +68,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
+  namespace: fluid-demo
   labels:
     app: backend
 spec:
