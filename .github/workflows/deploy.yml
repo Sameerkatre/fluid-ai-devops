@@ -8,7 +8,7 @@ on:
 
 env:
   IMAGE_NAME: fluid-demo
-  DOCKERHUB_USER: sameerkatre
+  DOCKERHUB_USER: sameerkat
 
 jobs:
   # ── Job 1: Lint & Smoke Test ─────────────────────────────────
