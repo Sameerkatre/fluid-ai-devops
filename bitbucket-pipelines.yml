@@ -1,0 +1,138 @@
+image: python:3.11-slim
+
+# ============================================================
+# Fluid AI — DevOps Challenge
+# Bitbucket Pipelines + ArgoCD GitOps Pipeline
+#
+# Flow:
+#   1. Build & test the Flask app
+#   2. Build Docker image and push to Docker Hub
+#   3. Update the image tag in gitops/envs/ manifest
+#   4. ArgoCD auto-syncs the cluster from the updated manifest
+# ============================================================
+
+definitions:
+  services:
+    docker:
+      memory: 2048
+
+  caches:
+    pip: ~/.cache/pip
+
+  steps:
+    # ── Step 1: Lint & Unit Test ─────────────────────────────
+    - step: &test
+        name: "Test — Lint & Smoke"
+        caches:
+          - pip
+        script:
+          - pip install -r app/requirements.txt --quiet
+          - pip install flake8 --quiet
+          # Lint: stop if syntax errors or undefined names
+          - flake8 app/app.py --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Smoke: import the app module without a real Redis
+          - python -c "import sys; sys.path.insert(0, 'app'); import app; print('Import OK')"
+        artifacts:
+          - app/**
+
+    # ── Step 2: Build & Push Docker Image ───────────────────
+    - step: &build-push
+        name: "Build & Push Docker Image"
+        services:
+          - docker
+        script:
+          # IMAGE_TAG = short git commit SHA (e.g. a1b2c3d)
+          - export IMAGE_TAG="${BITBUCKET_COMMIT:0:7}"
+          - export FULL_IMAGE="${DOCKERHUB_USERNAME}/fluid-demo:${IMAGE_TAG}"
+          - export LATEST_IMAGE="${DOCKERHUB_USERNAME}/fluid-demo:latest"
+
+          # Login to Docker Hub (credentials stored in Bitbucket Repository Variables)
+          - echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USERNAME}" --password-stdin
+
+          # Build from app/ directory
+          - docker build -t "${FULL_IMAGE}" -t "${LATEST_IMAGE}" ./app
+
+          # Push both tags
+          - docker push "${FULL_IMAGE}"
+          - docker push "${LATEST_IMAGE}"
+
+          # Save the image tag so the next step can read it
+          - echo "${IMAGE_TAG}" > image_tag.txt
+        artifacts:
+          - image_tag.txt
+
+    # ── Step 3: Update GitOps Manifest ──────────────────────
+    # This is what tells ArgoCD what image version to deploy.
+    # We update the YAML file, commit it back, and ArgoCD does
+    # the actual kubectl apply — NO kubectl in this pipeline.
+    - step: &update-gitops
+        name: "Update GitOps Manifest (triggers ArgoCD)"
+        script:
+          - export IMAGE_TAG=$(cat image_tag.txt)
+          - export ENV_DIR="gitops/envs/${TARGET_ENV}"
+          - export MANIFEST="${ENV_DIR}/backend.yaml"
+
+          - echo "Updating ${MANIFEST} to image tag ${IMAGE_TAG}"
+
+          # Replace the image tag in the Kubernetes manifest
+          - |
+            sed -i "s|image: ${DOCKERHUB_USERNAME}/fluid-demo:.*|image: ${DOCKERHUB_USERNAME}/fluid-demo:${IMAGE_TAG}|g" "${MANIFEST}"
+
+          # Commit the updated manifest back to the repo
+          - git config user.email "bitbucket-pipeline@fluid-ai.com"
+          - git config user.name "Bitbucket Pipeline Bot"
+          - git add "${MANIFEST}"
+          - git commit -m "ci: update ${TARGET_ENV} image to ${IMAGE_TAG} [skip ci]"
+          - git push origin HEAD:"${BITBUCKET_BRANCH}"
+
+          - echo "ArgoCD will auto-sync within ~3 minutes, or trigger manually:"
+          - echo "  argocd app sync fluid-demo-${TARGET_ENV}"
+
+pipelines:
+  # ── Pull Requests: Test only ─────────────────────────────
+  pull-requests:
+    "**":
+      - step: *test
+
+  # ── Main branch: Test → Build → Deploy to DEV ────────────
+  branches:
+    main:
+      - step: *test
+      - step: *build-push
+      - step:
+          <<: *update-gitops
+          name: "Deploy to DEV via ArgoCD"
+          deployment: dev
+          variables:
+            - name: TARGET_ENV
+              default: dev
+
+  # ── Staging deploy: triggered manually from main ─────────
+  custom:
+    deploy-staging:
+      - variables:
+          - name: CONFIRM
+            default: "yes"
+      - step: *test
+      - step: *build-push
+      - step:
+          <<: *update-gitops
+          name: "Deploy to STAGING via ArgoCD"
+          deployment: staging
+          variables:
+            - name: TARGET_ENV
+              default: staging
+
+    deploy-prod:
+      - variables:
+          - name: CONFIRM
+            default: "yes"
+      - step: *test
+      - step: *build-push
+      - step:
+          <<: *update-gitops
+          name: "Deploy to PROD via ArgoCD"
+          deployment: production
+          variables:
+            - name: TARGET_ENV
+              default: prod

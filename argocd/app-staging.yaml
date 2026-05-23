@@ -1,0 +1,30 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fluid-demo-staging
+  namespace: argocd
+  labels:
+    env: staging
+    project: fluid-demo
+spec:
+  project: default
+  source:
+    repoURL: https://bitbucket.org/sameerfencer/fluid-ai-devops
+    targetRevision: main
+    path: gitops/envs/staging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m

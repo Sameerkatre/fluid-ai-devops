@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fluid-demo-prod
+  namespace: argocd
+  labels:
+    env: prod
+    project: fluid-demo
+spec:
+  project: default
+  source:
+    repoURL: https://bitbucket.org/sameerfencer/fluid-ai-devops
+    targetRevision: main
+    path: gitops/envs/prod
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  syncPolicy:
+    # NOTE: Prod uses manual sync — no automated deploys!
+    # Trigger with: argocd app sync fluid-demo-prod
+    syncOptions:
+      - CreateNamespace=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m

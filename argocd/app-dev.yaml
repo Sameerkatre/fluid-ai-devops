@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fluid-demo-dev
+  namespace: argocd        # ArgoCD always lives in 'argocd' namespace
+  labels:
+    env: dev
+    project: fluid-demo
+spec:
+  project: default
+
+  # ── Source: which repo + path ArgoCD should watch ───────
+  source:
+    repoURL: https://bitbucket.org/sameerfencer/fluid-ai-devops
+    targetRevision: main
+    path: gitops/envs/dev    # ArgoCD applies everything in this folder
+
+  # ── Destination: which cluster + namespace to deploy to ─
+  destination:
+    server: https://kubernetes.default.svc   # in-cluster (Minikube)
+    namespace: dev
+
+  # ── Sync Policy ─────────────────────────────────────────
+  syncPolicy:
+    automated:
+      prune: true       # delete K8s resources removed from Git
+      selfHeal: true    # revert manual kubectl changes automatically
+    syncOptions:
+      - CreateNamespace=true    # auto-create 'dev' namespace if missing
+      - ApplyOutOfSyncOnly=true # only apply what changed (faster)
+    retry:
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 1m

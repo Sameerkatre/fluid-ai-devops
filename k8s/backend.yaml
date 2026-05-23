@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+    tier: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  # ── Zero-downtime Rolling Update ────────────────────────
+  # maxUnavailable: 0  → never kill old pod before new is ready
+  # maxSurge: 1        → spin up 1 extra pod during the update
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: backend
+        tier: api
+    spec:
+      containers:
+        - name: backend
+          # This image tag is updated by Bitbucket Pipelines on every main push.
+          # ArgoCD watches this file and applies the change to the cluster.
+          image: YOUR_DOCKERHUB_USERNAME/fluid-demo:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+          env:
+            - name: REDIS_HOST
+              value: "redis-service"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: APP_VERSION
+              value: "1.0.0"
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          # ── Resource Limits ─────────────────────────────
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+          # ── Liveness Probe ──────────────────────────────
+          # Checks: is the process still alive?
+          # /health just returns 200 — no external deps.
+          # If this fails 3x, K8s RESTARTS the container.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+          # ── Readiness Probe ─────────────────────────────
+          # Checks: is Redis reachable? Can we serve traffic?
+          # /ready pings Redis. If this fails 3x, K8s REMOVES
+          # the pod from the Service endpoints — no restarts.
+          # Traffic stops flowing to bad pods gracefully.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  labels:
+    app: backend
+spec:
+  type: NodePort
+  selector:
+    app: backend
+  ports:
+    - name: http
+      port: 80
+      targetPort: 5000
+      nodePort: 30080
