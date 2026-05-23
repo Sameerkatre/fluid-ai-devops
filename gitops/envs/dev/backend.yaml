@@ -25,8 +25,8 @@ spec:
       containers:
         - name: backend
           # This line is auto-updated by GitHub Actions on every push
-          image: sameerkatre/fluid-demo:local
-          imagePullPolicy: Never
+          image: sameerkat/fluid-demo:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 5000
           env:
